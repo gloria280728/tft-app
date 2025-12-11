@@ -91,3 +91,16 @@ if st.button("🔮 Generate Forecast"):
     ax.legend()
     st.pyplot(fig)
 
+# -----------------------------
+# LOAD PREDICTION CSV
+# -----------------------------
+@st.cache_data
+def load_prediction():
+    return pd.read_csv("Data/predicted_tft.csv")
+
+try:
+    df_pred = load_prediction()
+    st.subheader("📈 Data Prediksi TFT (CSV)")
+    st.dataframe(df_pred.head())
+except:
+    st.warning("File Data/predicted_tft.csv tidak ditemukan.")
