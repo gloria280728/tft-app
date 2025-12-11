@@ -1,54 +1,93 @@
 import streamlit as st
 import pandas as pd
+import torch
 import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
+import numpy as np
 
 st.set_page_config(page_title="TFT Forecast App", layout="wide")
+st.title("📈 TFT Real-Time Forecast Dashboard")
 
-st.title("📈 TFT Forecast Dashboard")
-st.write("Upload data, lihat hasil prediksi, dan tampilkan grafik.")
+# -----------------------------
+# 1. LOAD DATA
+# -----------------------------
 
-# Load price data
-st.subheader("Data Harga Saham (BBCA)")
-try:
-    df_price = pd.read_csv("bbca.csv")
-    st.dataframe(df_price.head())
-except:
-    st.warning("File bbca.csv tidak ditemukan. Pastikan file ada di repository.")
+@st.cache_data
+def load_price():
+    return pd.read_csv("bbca.csv")
 
-# Load fundamental data
-st.subheader("Data Fundamental")
-try:
-    df_fund = pd.read_csv("bbca_fundamentals_quarterly_2021_2023.csv")
-    st.dataframe(df_fund.head())
-except:
-    st.warning("File bbca_fundamentals_quarterly_2021_2023.csv tidak ditemukan.")
+@st.cache_data
+def load_fundamental():
+    return pd.read_csv("bbca_fundamentals_quarterly_2021_2023.csv")
 
-# Load prediction result (if exists)
-st.subheader("Hasil Prediksi TFT (Jika Sudah Ada)")
-try:
-    df_pred = pd.read_csv("predicted_tft.csv")
+df_price = load_price()
+df_fund  = load_fundamental()
 
-    st.success("Prediksi berhasil dimuat!")
-    st.dataframe(df_pred.head())
+st.subheader("📊 Data Harga BBCA")
+st.dataframe(df_price.head())
 
+st.subheader("🏦 Data Fundamental BBCA")
+st.dataframe(df_fund.head())
+
+# -----------------------------
+# 2. LOAD TRAINED TFT MODEL
+# -----------------------------
+
+class SimpleTFT(torch.nn.Module):
+    def __init__(self, input_size, hidden_size=32, output_size=1):
+        super().__init__()
+        self.l1 = torch.nn.Linear(input_size, hidden_size)
+        self.relu = torch.nn.ReLU()
+        self.l2 = torch.nn.Linear(hidden_size, output_size)
+
+    def forward(self, x):
+        return self.l2(self.relu(self.l1(x)))
+
+@st.cache_resource
+def load_model():
+    model = SimpleTFT(input_size=5)
+    model.load_state_dict(torch.load("tft_model.pth", map_location="cpu"))
+    model.eval()
+    return model
+
+model = load_model()
+
+# -----------------------------
+# 3. USER SELECT FORECAST DATE
+# -----------------------------
+
+st.subheader("📅 Pilih Tanggal untuk Prediksi")
+
+last_date = pd.to_datetime(df_price["Date"]).max()
+default_pred_date = last_date + timedelta(days=1)
+
+pred_date = st.date_input(
+    "Tanggal prediksi:",
+    value=default_pred_date,
+    min_value=default_pred_date,
+)
+
+# -----------------------------
+# 4. GENERATE FORECAST
+# -----------------------------
+
+def prepare_input(df):
+    """Ambil 5 fitur terakhir untuk prediksi"""
+    last_row = df[["Close", "High", "Low", "Open", "Volume"]].tail(1)
+    return torch.tensor(last_row.values, dtype=torch.float32)
+
+if st.button("🔮 Generate Forecast"):
+
+    x = prepare_input(df_price)
+    with torch.no_grad():
+        y_pred = model(x).item()
+
+    st.success(f"Prediksi harga BBCA untuk {pred_date}: **{y_pred:,.2f}**")
+
+    # plot
     fig, ax = plt.subplots()
-    ax.plot(df_pred["date"], df_pred["prediction"])
-    ax.set_xlabel("Date")
-    ax.set_ylabel("Prediction")
-    ax.set_title("TFT Prediction Graph")
-
+    ax.plot(df_price["Date"].tail(50), df_price["Close"].tail(50), label="History")
+    ax.scatter(pred_date, y_pred, color="red", label="Forecast")
+    ax.legend()
     st.pyplot(fig)
 
-except:
-    st.info("Belum ada file 'predicted_tft.csv'. Jalankan notebook di lokal untuk membuatnya.")
-
-st.divider()
-
-st.markdown("""
-### Cara Menggunakan
-1. Jalankan **START TFT.ipynb di komputer kamu**, bukan di Streamlit.
-2. Notebook akan menghasilkan file:  
-   **predicted_tft.csv**
-3. Upload file itu ke GitHub repository ini.
-4. Streamlit Cloud akan otomatis menampilkan grafik dan tabel prediksi.
-""")
