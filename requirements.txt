@@ -1,4 +1,7 @@
 streamlit
 pandas
 numpy
+torch
 matplotlib
+scikit-learn
+
