@@ -1,106 +1,92 @@
 import streamlit as st
 import pandas as pd
-import torch
-import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
+import altair as alt
 import numpy as np
 
-st.set_page_config(page_title="TFT Forecast App", layout="wide")
-st.title("📈 TFT Real-Time Forecast Dashboard")
+st.set_page_config(page_title="TFT Prediction Dashboard", layout="wide")
 
-# -----------------------------
-# 1. LOAD DATA
-# -----------------------------
-
+# ============================
+# LOAD DATA
+# ============================
 @st.cache_data
-def load_price():
-    return pd.read_csv("bbca.csv")
+def load_predictions():
+    df = pd.read_csv("Data/predicted_tft.csv")
 
-@st.cache_data
-def load_fundamental():
-    return pd.read_csv("bbca_fundamentals_quarterly_2021_2023.csv")
+    # Normalisasi nama kolom (jaga2 biar nggak error)
+    df.columns = [c.strip().lower() for c in df.columns]
 
-df_price = load_price()
-df_fund  = load_fundamental()
+    return df
 
-st.subheader("📊 Data Harga BBCA")
-st.dataframe(df_price.head())
+df = load_predictions()
 
-st.subheader("🏦 Data Fundamental BBCA")
-st.dataframe(df_fund.head())
+st.title("📊 TFT Prediction Dashboard")
+st.write("Visualisasi hasil prediksi model Temporal Fusion Transformer (TFT).")
+st.markdown("---")
 
-# -----------------------------
-# 2. LOAD TRAINED TFT MODEL
-# -----------------------------
+# ============================
+# SIDEBAR FILTERS
+# ============================
+with st.sidebar:
+    st.header("Filter Data")
 
-class SimpleTFT(torch.nn.Module):
-    def __init__(self, input_size, hidden_size=32, output_size=1):
-        super().__init__()
-        self.l1 = torch.nn.Linear(input_size, hidden_size)
-        self.relu = torch.nn.ReLU()
-        self.l2 = torch.nn.Linear(hidden_size, output_size)
+    # Auto-detect kolom yang mungkin ada
+    available_cols = df.columns
 
-    def forward(self, x):
-        return self.l2(self.relu(self.l1(x)))
+    col_school = "school" if "school" in available_cols else None
+    col_major  = "major" if "major" in available_cols else None
+    col_year   = "year" if "year" in available_cols else None
+    col_pred   = "prediction" if "prediction" in available_cols else df.columns[-1]
 
-@st.cache_resource
-def load_model():
-    model = SimpleTFT(input_size=5)
-    model.load_state_dict(torch.load("tft_model.pth", map_location="cpu"))
-    model.eval()
-    return model
+    # Filter school
+    if col_school:
+        school_list = sorted(df[col_school].dropna().unique())
+        selected_school = st.selectbox("School", ["All"] + school_list)
+        if selected_school != "All":
+            df = df[df[col_school] == selected_school]
 
-model = load_model()
+    # Filter major
+    if col_major:
+        major_list = sorted(df[col_major].dropna().unique())
+        selected_major = st.selectbox("Major", ["All"] + major_list)
+        if selected_major != "All":
+            df = df[df[col_major] == selected_major]
 
-# -----------------------------
-# 3. USER SELECT FORECAST DATE
-# -----------------------------
+    # Filter year
+    if col_year:
+        year_list = sorted(df[col_year].unique())
+        selected_year = st.selectbox("Year", ["All"] + [int(y) for y in year_list])
+        if selected_year != "All":
+            df = df[df[col_year] == selected_year]
 
-st.subheader("📅 Pilih Tanggal untuk Prediksi")
+st.subheader("📈 Prediction Trend")
 
-last_date = pd.to_datetime(df_price["Date"]).max()
-default_pred_date = last_date + timedelta(days=1)
+# ============================
+# LINE CHART
+# ============================
+if col_year:
+    chart = (
+        alt.Chart(df)
+        .mark_line(point=True)
+        .encode(
+            x=alt.X(col_year + ":O", title="Year"),
+            y=alt.Y(col_pred + ":Q", title="Prediction Value"),
+            tooltip=list(df.columns),
+        )
+        .properties(height=350)
+    )
+    st.altair_chart(chart, use_container_width=True)
+else:
+    st.info("Kolom 'year' tidak ditemukan. Tidak bisa menampilkan line chart.")
 
-pred_date = st.date_input(
-    "Tanggal prediksi:",
-    value=default_pred_date,
-    min_value=default_pred_date,
+st.markdown("---")
+st.subheader("📄 Data Table")
+
+st.dataframe(df, use_container_width=True)
+
+st.markdown("### Download Data")
+st.download_button(
+    label="Download Filtered CSV",
+    data=df.to_csv(index=False),
+    file_name="filtered_predictions.csv",
+    mime="text/csv"
 )
-
-# -----------------------------
-# 4. GENERATE FORECAST
-# -----------------------------
-
-def prepare_input(df):
-    """Ambil 5 fitur terakhir untuk prediksi"""
-    last_row = df[["Close", "High", "Low", "Open", "Volume"]].tail(1)
-    return torch.tensor(last_row.values, dtype=torch.float32)
-
-if st.button("🔮 Generate Forecast"):
-
-    x = prepare_input(df_price)
-    with torch.no_grad():
-        y_pred = model(x).item()
-
-    st.success(f"Prediksi harga BBCA untuk {pred_date}: **{y_pred:,.2f}**")
-
-    # plot
-    fig, ax = plt.subplots()
-    ax.plot(df_price["Date"].tail(50), df_price["Close"].tail(50), label="History")
-    ax.scatter(pred_date, y_pred, color="red", label="Forecast")
-    ax.legend()
-    st.pyplot(fig)
-
-# -----------------------------
-# LOAD PREDICTION CSV
-# -----------------------------
-@st.cache_data
-def load_prediction():
-    return pd.read_csv("Data/predicted_tft.csv")
-
-try:
-    df_pred = load_prediction()
-    st.subheader("📈 Data Prediksi TFT (CSV)")
-    st.dataframe(df_pred.head())
-except:
-    st.warning("File Data/predicted_tft.csv tidak ditemukan.")
