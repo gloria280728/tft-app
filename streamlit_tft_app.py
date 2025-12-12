@@ -23,6 +23,12 @@ st.title("📊 TFT Prediction Dashboard")
 st.write("Visualisasi hasil prediksi model Temporal Fusion Transformer (TFT).")
 st.markdown("---")
 
+col_school = "school" if "school" in available_cols else None
+col_major  = "major" if "major" in available_cols else None
+col_year   = "year" if "year" in available_cols else None
+col_pred   = "prediction" if "prediction" in available_cols else df.columns[-1]
+
+
 # ============================
 # SIDEBAR FILTERS
 # ============================
@@ -32,10 +38,6 @@ with st.sidebar:
     # Auto-detect kolom yang mungkin ada
     available_cols = df.columns
 
-    col_school = "school" if "school" in available_cols else None
-    col_major  = "major" if "major" in available_cols else None
-    col_year   = "year" if "year" in available_cols else None
-    col_pred   = "prediction" if "prediction" in available_cols else df.columns[-1]
 
     # Filter school
     if col_school:
